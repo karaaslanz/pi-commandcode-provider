@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Recognize the `off` reasoning effort now published for the DeepSeek V4 and V4.1 models, so the catalog parser no longer rejects it and the generate transport never forwards `off` as `reasoning_effort`. The Provider API and Oh My Pi adapters translate the level from the model's thinking metadata on their own wire.
+- Refresh the static capability snapshot to `command-code@1.79.2`: add `claude-haiku-5-5`, `mistral/mistral-large-4` (image input, 262K output limit), and the free `stealth/glyph-cluster:free`; retire `stealth/pixel-canary` and `stealth/space-bunny-alpha`.
+- Add reviewed display pricing for the refreshed catalog — `claude-haiku-5-5` with its 100K long-context tier, `mistral/mistral-large-4`, and the free `stealth/glyph-cluster:free` — drop the retired `stealth/space-bunny-alpha`, and correct the `claude-sonnet-5-5` cache-read rate to $0.10 per million tokens, verified against the official pricing page on 2026-10-09. The snapshot now covers all 87 advertised models.
+- Fix `400 input[N].call_id` failures on the `/alpha/generate` fallback by shortening compound Responses tool-call ids (`<call_id>|<item_id>`, 73 characters in the reported session) to the 64-character wire limit. The mapping is deterministic per request and shared by tool calls and their results, so pairing is preserved and distinct ids never collide; short ids pass through unchanged and the Provider API path is untouched ([#141](https://github.com/patlux/pi-commandcode-provider/issues/141)).
+- Replay prior assistant reasoning on the generate transport so the model can see its own earlier thinking on follow-up turns, matching the Command Code CLI's `/alpha/generate` wire (`toWireMessages` in `command-code@1.79.2`), which replays every thinking block as a `reasoning` part with no model check and no signature. Prior reasoning was dropped in 0.5.0, which made multi-turn tasks whose state lives only in thinking — plans, games, consistency checks — silently re-decide on the fallback transport.
+
 ## 0.7.6 - 2026-10-06
 
 - Correct the display input price for `stepfun/Step-3.5-Flash` to $0.09 per million tokens and add the `Qwen/Qwen3.6-Plus` long-context tier above 256K tokens, verified against the official pricing page on 2026-10-06. Mark the unchanged, expired `qwen-3.7-max-2x-usage` badge as reviewed in the pricing checker while keeping it visible in reports; changed deal terms and price drift still require review.
