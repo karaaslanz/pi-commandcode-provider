@@ -443,7 +443,13 @@ describe("Command Code quota", () => {
   it("times out when a custom fetch ignores the abort signal", async () => {
     let aborted = false
     const fetchImpl = (_input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-      init?.signal?.addEventListener("abort", () => { aborted = true }, { once: true })
+      init?.signal?.addEventListener(
+        "abort",
+        () => {
+          aborted = true
+        },
+        { once: true },
+      )
       // Broken fetch implementation: neither resolves nor rejects when aborted.
       return new Promise<Response>(() => {})
     }
