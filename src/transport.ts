@@ -93,11 +93,17 @@ export function createCommandCodeTransportRouter(deps: TransportDependencies) {
       const run = async () => {
         const providerStream = deps.streamProvider(model, context, providerOptions)
 
-        for await (const event of providerStream) {
-          if (!upgradeRequired) {
-            if (apiKey === requestApiKey) transport = "provider"
-            output.push(event)
+        try {
+          for await (const event of providerStream) {
+            if (!upgradeRequired) {
+              if (apiKey === requestApiKey) transport = "provider"
+              output.push(event)
+            }
           }
+        } catch (error) {
+          // Provider streams may reject after the 403 response was inspected.
+          // Only an explicit upgrade_required response permits generate fallback.
+          if (!upgradeRequired) throw error
         }
 
         if (upgradeRequired) {
