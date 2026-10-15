@@ -239,6 +239,8 @@ describe("Command Code transport router", () => {
             { status: response.status, headers: {} },
             makeModel({ api: "openai-completions" }),
           )
+          // Even events emitted before the iterator rejects must stay suppressed.
+          yield* completedStream("blocked-provider-output")
           throw new Error("Provider stream rejected after 403")
         }
         return stream
@@ -256,8 +258,19 @@ describe("Command Code transport router", () => {
     const first = await collectEvents(router.stream(makeModel(), makeContext(), options))
     const second = await collectEvents(router.stream(makeModel(), makeContext(), options))
 
-    assert.equal(first.at(-1)?.type, "done")
-    assert.equal(second.at(-1)?.type, "done")
+    for (const events of [first, second]) {
+      assert.deepEqual(
+        events.map((event) => event.type),
+        ["start", "text_start", "text_delta", "text_end", "done"],
+      )
+      assert.deepEqual(
+        events.flatMap((event) => (event.type === "text_delta" ? [event.delta] : [])),
+        ["generate"],
+      )
+      const terminal = events.at(-1)
+      assert.ok(terminal?.type === "done")
+      assert.deepEqual(terminal.message.content, [{ type: "text", text: "generate" }])
+    }
     assert.equal(router.getTransport(), "generate")
     assert.equal(providerCalls, 1)
     assert.equal(generateCalls, 2)
@@ -288,7 +301,13 @@ describe("Command Code transport router", () => {
           ),
       }),
     )
-    assert.equal(events.at(-1)?.type, "error")
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ["error"],
+    )
+    const terminal = events.at(-1)
+    assert.ok(terminal?.type === "error")
+    assert.equal(terminal.error.errorMessage, "Provider stream rejected on denied request")
     assert.equal(generateCalls, 0)
   })
 

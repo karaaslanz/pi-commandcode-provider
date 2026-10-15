@@ -101,8 +101,9 @@ export function createCommandCodeTransportRouter(deps: TransportDependencies) {
             }
           }
         } catch (error) {
-          // Provider streams may reject after the 403 response was inspected.
-          // Only an explicit upgrade_required response permits generate fallback.
+          // Defense in depth for adapters whose iterators reject after HTTP errors;
+          // current Pi/OMP adapters emit error events instead. Only an inspected
+          // upgrade_required response permits generate fallback.
           if (!upgradeRequired) throw error
         }
 
