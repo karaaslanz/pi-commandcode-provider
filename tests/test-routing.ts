@@ -23,6 +23,8 @@ const model: CommandCodeModel = {
 describe("persistent endpoint choices", () => {
   it("uses catalog auto and per-model overrides without changing other models", () => {
     assert.equal(resolveEndpoint(model, {}), "openai-responses")
+    assert.equal(resolveEndpoint({ ...model, id: "constructor" }, {}), "openai-responses")
+    assert.equal(resolveEndpoint({ ...model, id: "__proto__" }, {}), "openai-responses")
     assert.equal(resolveEndpoint(model, { [model.id]: "chat-completions" }), "openai-completions")
     assert.equal(
       resolveEndpoint({ ...model, id: "meta/muse-spark-1.3" }, { [model.id]: "chat-completions" }),
@@ -63,6 +65,12 @@ describe("persistent endpoint choices", () => {
       )
       await assert.rejects(saveEndpointChoice(path, model.id, "auto"))
       assert.match(await readFile(path, "utf8"), /sensitive/)
+      // Recovery is opt-in: an explicit host command may atomically replace the
+      // malformed optional file, without echoing its contents in an error.
+      const recovered = await saveEndpointChoice(path, model.id, "chat-completions", {})
+      assert.equal(recovered[model.id], "chat-completions")
+      assert.equal((await loadEndpointOverrides(path))[model.id], "chat-completions")
+      assert.doesNotMatch(await readFile(path, "utf8"), /sensitive/)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }
@@ -76,8 +84,13 @@ describe("persistent endpoint choices", () => {
     ]) {
       assert.throws(() => parseEndpointOverrides(value))
     }
-    assert.deepEqual(parseEndpointOverrides({ version: 1, models: { foo: "auto" } }), {
-      foo: "auto",
-    })
+    assert.deepEqual(parseEndpointOverrides({ version: 1, models: { foo: "auto" } }), {})
+    assert.equal(
+      resolveEndpoint(
+        { ...model, id: "constructor" },
+        parseEndpointOverrides({ version: 1, models: {} }),
+      ),
+      "openai-responses",
+    )
   })
 })

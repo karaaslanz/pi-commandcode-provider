@@ -235,7 +235,8 @@ export default async function (pi: ExtensionAPI) {
     routingWarning = error instanceof Error ? error.message : "Invalid routing configuration"
   }
   const resolveModelApi = (modelId: string): CommandCodeApi => {
-    if (routingWarning) throw new Error(routingWarning)
+    // An optional corrupt routing file must not disable all Provider requests.
+    // Use catalog defaults until the user repairs it via the endpoint command.
     const model = catalogModels.get(modelId)
     return model ? resolveEndpoint(model, routing) : apiForModelId(modelId)
   }
@@ -254,7 +255,12 @@ export default async function (pi: ExtensionAPI) {
       await ctx.waitForIdle()
       try {
         resolveEndpoint(model, { [model.id]: choice })
-        routing = await saveEndpointChoice(routingPath, model.id, choice)
+        routing = await saveEndpointChoice(
+          routingPath,
+          model.id,
+          choice,
+          routingWarning ? routing : undefined,
+        )
         routingWarning = undefined
         ctx.ui.notify(
           `Command Code endpoint for ${model.id}: ${resolveModelApi(model.id)} (${choice === "auto" ? "catalog" : "user override"}). Applies to the next request and survives refresh/restart.`,
@@ -294,12 +300,10 @@ export default async function (pi: ExtensionAPI) {
           ...model,
           api: wire,
           cost: commandCodeCostRatesAt(model.id, model.cost),
-          compat: {
-            ...(model.compatConfig ?? model.compat),
-            // A selected host model can outlive a command or background refresh.
-            // Wire-specific defaults must follow the actual request, not that stale model.
-            ...(catalogModel ? compatForModel({ ...catalogModel, api: wire }) : {}),
-          },
+          // A selected wire must not inherit flags belonging to the old wire.
+          compat: catalogModel
+            ? compatForModel({ ...catalogModel, api: wire })
+            : (model.compatConfig ?? model.compat),
         },
         context,
         nativeOptions,
@@ -355,13 +359,13 @@ export default async function (pi: ExtensionAPI) {
       if (routingWarning) return `routing warning: ${routingWarning}`
       if (model?.provider !== "commandcode") return "model endpoint: no Command Code model selected"
       try {
-        return `model endpoint: ${resolveModelApi(model.id)} (${routing[model.id] ?? "auto"}; ${routing[model.id] ? "user override" : "catalog"})`
+        return `model endpoint: ${resolveModelApi(model.id)} (${Object.hasOwn(routing, model.id) ? routing[model.id] : "auto"}; ${Object.hasOwn(routing, model.id) ? "user override" : "catalog"})`
       } catch (error) {
         return `routing warning: ${error instanceof Error ? error.message : "Invalid route"}`
       }
     },
     getTransport: transport.getTransport,
-    getStreamWarning: () => streamWarning,
+    getStreamWarning: () => [routingWarning, streamWarning].filter(Boolean).join("; ") || undefined,
   })
 
   pi.on("session_shutdown", () => {

@@ -25,8 +25,12 @@ export function parseEndpointOverrides(value: unknown): EndpointOverrides {
   if (entries.some(([id, choice]) => !id.trim() || !isEndpointChoice(choice))) {
     throw new Error("Routing choices must be auto, responses, or chat-completions")
   }
+  // Explicit auto entries must behave like omitted overrides (including in status).
   return Object.fromEntries(
-    entries.filter((entry): entry is [string, EndpointChoice] => isEndpointChoice(entry[1])),
+    entries.filter(
+      (entry): entry is [string, EndpointChoice] =>
+        isEndpointChoice(entry[1]) && entry[1] !== "auto",
+    ),
   )
 }
 
@@ -38,7 +42,7 @@ export async function loadEndpointOverrides(path: string): Promise<EndpointOverr
     if (error instanceof Error && "code" in error && error.code === "ENOENT") return {}
     // Do not echo file contents, JSON parse excerpts, paths, or arbitrary values.
     throw new Error(
-      "Could not read Command Code routing configuration; check its version and model choices",
+      "Could not read commandcode-routing.json in the agent directory; check its version and model choices",
     )
   }
 }
@@ -47,7 +51,7 @@ export function resolveEndpoint(
   model: CommandCodeModel,
   overrides: EndpointOverrides,
 ): CommandCodeApi {
-  const choice = overrides[model.id] ?? "auto"
+  const choice = Object.hasOwn(overrides, model.id) ? overrides[model.id] : "auto"
   if (choice === "auto") return model.api
   if (model.api === "anthropic-messages") {
     throw new Error("Claude models require Anthropic Messages; use auto")
@@ -65,8 +69,11 @@ export async function saveEndpointChoice(
   path: string,
   modelId: string,
   choice: EndpointChoice,
+  recoveryOverrides?: EndpointOverrides,
 ): Promise<EndpointOverrides> {
-  const overrides = { ...(await loadEndpointOverrides(path)) }
+  // A host may explicitly repair a malformed optional file from its in-memory
+  // state; ordinary writes still re-read the current file to preserve changes.
+  const overrides = { ...(recoveryOverrides ?? (await loadEndpointOverrides(path))) }
   if (choice === "auto") delete overrides[modelId]
   else
     Object.defineProperty(overrides, modelId, {

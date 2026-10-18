@@ -1224,6 +1224,27 @@ try {
   assert.ok(Array.isArray(lastRequestBody.messages))
   rmSync(join(agentDir, "commandcode-routing.json"))
 
+  console.log("[pi-local] malformed optional routing file keeps provider usable")
+  writeFileSync(join(agentDir, "commandcode-routing.json"), '{"secret":"never-log", malformed')
+  requestCount = 0
+  const recoveredPrint = await runPi([
+    "--no-extensions",
+    "-e",
+    EXT_PATH,
+    "-p",
+    "say mock token",
+    "--provider",
+    "commandcode",
+    "--model",
+    RESPONSES_TEST_MODEL,
+  ])
+  assert.equal(recoveredPrint.code, 0, recoveredPrint.stderr)
+  assert.match(recoveredPrint.stdout, /mock-pi-ok/)
+  assert.equal(requestCount, 1)
+  assert.equal(lastRequestPath, "/provider/v1/responses")
+  assert.doesNotMatch(recoveredPrint.stdout + recoveredPrint.stderr, /never-log/)
+  rmSync(join(agentDir, "commandcode-routing.json"))
+
   console.log("[pi-local] Responses reasoning deltas stream before the item completes")
   requestCount = 0
   let releaseResponsesReasoningGate
