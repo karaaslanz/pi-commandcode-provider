@@ -71,6 +71,12 @@ describe("persistent endpoint choices", () => {
       assert.equal(recovered[model.id], "chat-completions")
       assert.equal((await loadEndpointOverrides(path))[model.id], "chat-completions")
       assert.doesNotMatch(await readFile(path, "utf8"), /sensitive/)
+      // The owner's requested reset path must work even when the file is broken.
+      await writeFile(path, '{"secret":"never-log", broken')
+      const reset = await saveEndpointChoice(path, model.id, "auto", {})
+      assert.deepEqual(reset, {})
+      assert.deepEqual(await loadEndpointOverrides(path), {})
+      assert.doesNotMatch(await readFile(path, "utf8"), /never-log/)
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

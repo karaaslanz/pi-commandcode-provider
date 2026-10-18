@@ -563,7 +563,10 @@ async function runRpcQuery(
   }
 }
 
-async function runRpcExtensionCommands(timeoutMs = 30_000) {
+async function runRpcExtensionCommands(timeoutMs = 30_000, repairMalformed = false) {
+  if (repairMalformed) {
+    writeFileSync(join(agentDir, "commandcode-routing.json"), '{"secret":"never-log", broken')
+  }
   const child = spawn(
     PI_BIN,
     [
@@ -657,11 +660,43 @@ async function runRpcExtensionCommands(timeoutMs = 30_000) {
           event.type === "extension_ui_request" &&
           event.method === "notify" &&
           typeof event.message === "string" &&
-          event.message.includes("model count: 3"),
+          (repairMalformed
+            ? event.message.includes("routing warning:")
+            : event.message.includes("model count: 3")),
         fromIndex,
       )
-      if (/source: live[\s\S]*refresh: idle/.test(statusBefore.message)) break
+      // A corrupt optional routing file reports the warning as the status
+      // message instead of a normal model count; the repair command must work
+      // through that status without waiting for an impossible count.
+      if (repairMalformed || /source: live[\s\S]*refresh: idle/.test(statusBefore.message)) break
       await new Promise((resolve) => setTimeout(resolve, 100))
+    }
+
+    if (repairMalformed) {
+      assert.match(statusBefore.message, /routing warning:.*commandcode-routing\.json/)
+      const fromIndex = events.length
+      send({
+        id: "endpoint-repair",
+        type: "prompt",
+        message: `/commandcode-endpoint ${TEST_MODEL} auto`,
+      })
+      const repairResult = await waitFor(
+        (event) => event.type === "response" && event.id === "endpoint-repair",
+      )
+      assert.equal(repairResult.success, true, "RPC command must succeed")
+      const notification = await waitFor(
+        (event) =>
+          event.type === "extension_ui_request" &&
+          event.method === "notify" &&
+          event.message?.includes("(catalog). Applies"),
+        fromIndex,
+      )
+      assert.deepEqual(
+        JSON.parse(readFileSync(join(agentDir, "commandcode-routing.json"), "utf8")).models,
+        {},
+      )
+      assert.doesNotMatch(statusBefore.message + notification.message + stderr, /never-log/)
+      return { repaired: true, statusBefore: statusBefore.message, stderr }
     }
 
     send({
@@ -1356,6 +1391,14 @@ try {
     `${runtimeCommands.statusBefore}\n${runtimeCommands.statusAfter}\n${runtimeCommands.stderr}`,
     /mock-key/,
   )
+
+  console.log(
+    "[pi-local] repair a malformed optional routing file using the real RPC endpoint auto command",
+  )
+  includeRefreshedModel = false
+  const repairedRouting = await runRpcExtensionCommands(30_000, true)
+  assert.equal(repairedRouting.repaired, true)
+  assert.match(repairedRouting.statusBefore, /routing warning/)
 
   console.log("[pi-local] RPC prompt through real extension and mock API")
   requestCount = 0
